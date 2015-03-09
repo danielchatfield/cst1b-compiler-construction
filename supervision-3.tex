@@ -1,0 +1,431 @@
+\documentclass{supervision}
+\usepackage{course}
+
+\Supervision{3}
+\begin{document}
+  \begin{questions}
+    \question
+      \begin{parts}
+        \part[4] Describe what calling conventions are and what they are used
+          for. Illustrate your answer using an example in pseudo assembly code.
+          \begin{solution}
+            A calling convention is a scheme for how parameters are passes to
+            a function from the caller and how they return a result.
+
+            Different calling conventions may differ in:
+            \begin{itemize}
+              \item Where parameters, return values and return addresses are
+                placed (registers, call stack etc.)
+              \item Order in which arguments are passed
+              \item How a return value is returned from the callee to the caller
+              \item Whether the caller or callee is responsible for cleaning up
+                and setting up a stack frame.
+            \end{itemize}
+
+            C uses the CDECL calling convention (right to left and the
+            calling function cleans the stack).
+
+            Consider the following function:
+
+            \begin{code}{C}
+              int example(int a, int b) {
+                return a + b;
+              }
+            \end{code}
+
+            called by:
+
+            \begin{code}{C}
+              x = example(2, 3)
+            \end{code}
+
+            These would produce the following assembly listings repsectively:
+
+            \begin{code}{assembly}
+              example:
+                push ebp
+                mov ebp, esp
+                mov eax, [ebp + 8]
+                mov edx, [ebp + 12]
+                add eax, edx
+                pop ebp
+                ret
+            \end{code}
+
+            \begin{code}{assembly}
+              push 3
+              push 2
+              call example
+              add esp, 8
+            \end{code}
+
+            On entry to example, $esp$ points to the return address pushed onto
+            the stack by the call instruction.
+          \end{solution}
+
+        \part[2] Explain the difference between calling conventions and
+          evaluation strategies.
+          \begin{solution}
+            Evaluation strategy is seen as part of the language where as
+            calling convention is seen as implementation details. The
+            evaluation strategy may influence or even dictate some parts of the
+            calling convention but they are considered separate.
+
+            Evaluation strategy determines when and in what order to evaluate
+            the arguments of a function call and what kind of value to pass.
+          \end{solution}
+
+        \part[2] A compiler author is writing a code generator which targets
+          the C language. His intention is to implement CPS so that each
+          function from his source language is translated into a C function
+          which pops its continuation off an argument stack and then calls the
+          continuation at the end. For “convenience”, he defines the following
+          macro:
+
+          \begin{code}{C++}
+            #define JUMP(x) (*x)()
+          \end{code}
+
+          He then uses the macro to jump to continuations:
+
+          \begin{code}{C++}
+            void foo() {
+                void* cont = *Stack--; // pop continuation off the stack
+                // code for foo
+                JUMP(&cont); // cont is the continuation
+            }
+          \end{code}
+
+          Explain potential pitfalls with this implementation of CPS.
+
+          \begin{solution}
+            Each continutation is called from within the callee's scope and thus
+            the stack will grow and grow as the program executes. Eventually
+            stack overflow will occur.
+          \end{solution}
+        \part[2] The compiler author reconsiders his approach in light of your
+          answer to the previous question and changes the signatures of all C
+          functions to e.g.:
+
+          \begin{code}{C++}
+            void* foo();
+          \end{code}
+
+          He also changes his macro to:
+
+          \begin{code}{C++}
+            #define JUMP(x) return(x)
+          \end{code}
+
+          Finally, he implements the following:
+
+          \begin{code}{C++}
+            int main(int argc, char** argv) {
+                void* cont = &foo;
+                while(1) { cont = (*cont)(); }
+                return 0;
+            }
+          \end{code}
+
+          Explain why this approach is better.
+
+          \begin{solution}
+            The continuations are popped off the stack and executed by a while
+            loop and therefore since a continuation returns before the next one
+            is executed, its stack frame is removed.
+          \end{solution}
+
+        \part[2] If the compiler author were to choose an assembly language as
+          the target language for his compiler, how should he implement CPS
+          then?
+          \begin{solution}
+            Every subroutine returns the address of its continuation with a
+            main loop that just calls the return address (as in the C example).
+          \end{solution}
+
+      \end{parts}
+
+    \question Recall that configurations in the STG-machine are 6-tuples
+      consisting of:
+
+      \begin{enumerate}
+        \item the code to be executed
+        \item the argument stack ($as$), which contains values
+        \item the return stack ($rs$), which contains continuations
+        \item the update stack ($us$), which contains update frames
+        \item the heap ($h$), which contains closures
+        \item the global environment ($\sigma$), which gives the addresses of
+          all closures defined at top level
+      \end{enumerate}
+
+      How do we map these to a C program? We begin by looking at the heap. For
+      this purpose, we will distinguish between two kinds of objects on the
+      heap:
+
+      \begin{itemize}
+        \item \emph{Head normal forms} or \emph{values} are heap objects which
+          can not be evaluated any further, and
+        \item \emph{suspensions} or \emph{thunks} are heap objects which have
+          not yet been evaluated
+      \end{itemize}
+
+      Collectively, we will refer to values and thunks as \emph{closures}.
+      Traditionally, a closure consists of a pointer to the code of a suspended
+      computation (i.e. just a pointer to some code), and the values of all
+      free variables. For example, think about the Further Java exercises in
+      which you created anonymous methods and classes. Those resulted in the
+      creation of closures which contained copies of the variables that were
+      captured by the anonymous methods or classes.
+
+      In the STG-machine we use this representation for both, values and
+      thunks. This corresponds to the way we represent closures in the
+      operational semantics. I.e. the $Eval e \rho$ code component consists of
+      an expression $e$ (the code) and the local environment $\rho$ (the free
+      variables).
+
+      \begin{parts}
+        \part[2] Show how you would represent STG closures in a low-level
+          systems language, such as C, and explain your answer.
+
+          \begin{solution}
+            I would represent them as a pointer to a code section and a pointer
+            to an array of free variables.
+
+            Since free variables are themselves closures, this will be an array
+            of pointers to closures.
+
+            When the code section is entered it sets the code pointer to a
+            blackhole pointer that if executed causes an error (since if this
+            happens then the value must depend on itself which is not valid).
+
+            When the code section has evaluated, it overwrites itself with the
+            resulting data.
+          \end{solution}
+
+        \part[4] It is possible to generate static closures for all global
+          bindings. Generate closures and function prototypes (stubs) in C for
+          all global bindings in the following STG program.
+
+          \begin{code}{{}}
+            nil  = {} \n {}  -> Nil {}
+            succ = {} \n {x} -> +# {x, 1#}
+            list = {} \n {}  -> Cons {5#, nil}
+            map  = {} \n {f,xs} ->
+                      case xs {} of
+                        Nil {}      -> Nil {}
+                        Cons {y,ys} -> let  fy = {f,y}  \n {} -> f {y}
+                                           mfy = {f,ys} \n {} -> map {f,ys}
+                                       in Cons {fy, mfy}
+            main = {} \n {} -> map {succ, list}
+          \end{code}
+
+          For example, the C function corresponding to \lstinline|nil| may look
+          like this:
+
+          \begin{code}{C}
+            void* nil_code() {
+              // do nothing yet
+              JUMP(NULL); // to make the compiler happy for now
+            }
+          \end{code}
+
+          \begin{solution}
+            \begin{code}{C}
+              void* succ_code() {
+                // code
+                JUMP(*stack--);
+              }
+
+              void* list_code() {
+                // code
+                JUMP(*stack--);
+              }
+
+              void* map_code() {
+                // code
+                JUMP(*stack--);
+              }
+
+              void* main_code() {
+                //code
+                JUMP(*stack--);
+              }
+
+              Closure succ_closure = {
+                &succ_code,
+                {}
+              };
+
+              Closure list_closure = {
+                &list_code,
+                {}
+              };
+
+              Closure map_closure = {
+                &map_code,
+                {}
+              };
+
+              Closure main_closure = {
+                &main_code,
+                {}
+              };
+            \end{code}
+          \end{solution}
+
+        \part[2] Explain why there is no need to implement the global
+          environment $\sigma$ when mapping the STG machine to C.
+          \begin{solution}
+            When mapping to C you can simply use the C global environment and
+            let C handle it.
+          \end{solution}
+
+        \part[1] Closures for local bindings must be allocated dynamically at
+          runtime because we cannot predict what their free variables will be.
+          For this purpose, we require a heap that we can allocate memory on.
+          Do not worry about freeing memory. Show how you would implement this
+          in C.
+          \begin{solution}
+            \emph{I'm not comfortable enough with C for a full working example.}
+
+            Use malloc to allocate space on the heap. In the previous question
+            I used a pointer to an array as I wasn't sure if you could do it
+            otherwise since the struct needs to have a fixed size, I saw
+            something about a flexible array member but didn't really get it.
+
+            So you would create a new struct then use malloc to allocate space
+            for the pointer array.
+          \end{solution}
+
+        \part[1] How would you implement a test for whether there is free space
+          on the heap?
+          \begin{solution}
+            Malloc will return a \lstinline|NULL| if there is insufficient
+            space.
+          \end{solution}
+
+        \part[3] Suppose that a local binding $fy$ has a corresponding C
+          function named $fy_code$ which captures two free variables. Show how
+          you would allocate space on the heap for a corresponding closure and
+          how you would initialise it, assuming that pointers to the closures
+          for the two free variables are available in local variables named $f$
+          and $y$.
+          \begin{solution}
+            \begin{code}{C}
+              Closure* closure;
+              closure->code = &fy_code;
+
+              // needs to be on heap - not sure
+
+              Closure *closures[2];
+
+              closures[0] = f;
+              closures[1] = y;
+
+              return closure;
+            \end{code}
+          \end{solution}
+
+      \end{parts}
+
+    \question
+      \begin{parts}
+        \part It is possible to implement all three stacks ($as$, $rs$, and
+          $us$) using one concrete stack and, for simplicity, that’s what we
+          will do for now. Traditionally, stacks grow from higher memory
+          addresses to lower memory addresses. Why?
+          \begin{solution}
+            The stack and the heap need to be able to grow dynamically and
+            therefore the most flexible layout is for one to grow down from a
+            high address and the other to grow up from the bottom.
+
+            As to why it is heap up, stack down I can't think of any solid
+            reasons for this - it seems to just be convention.
+          \end{solution}
+
+        \part Show how you would implement a stack in C, including sample code
+          to push and pop items.
+          \begin{solution}
+            \codefile[c]{code/stack.c}
+          \end{solution}
+
+        \part The process of evaluating (“entering”) a closure involves jumping
+          to the memory address indicated by the code pointer of a closure and
+          pushing any arguments onto the stack. How would you ensure that the
+          code component of the closure can find its free variables? How would
+          you address the argument?
+          \begin{solution}
+            When you enter a closure you first push a pointer to it into a
+            register (lets call it the closure_register). Then the code
+            component can just look at this register.
+          \end{solution}
+
+        \part Explain what we mean by “boxed” and “unboxed” values. Give an
+          example of both in the STG language.
+          \begin{solution}
+            An unboxed value is a primitive where as a boxed value is a
+            minimal wrapper around a primitive type.
+
+            Closures are an example of boxed, I'm not sure about unboxed.
+          \end{solution}
+
+        \part % e
+          \begin{solution}
+            \begin{code}{C}
+              void* zero() {
+                int_res = 0;
+                JUMP(*stack--);
+              }
+
+              void* not() {
+                if(int_res == 0) {
+                  int_res = 1;
+                } else {
+                  int_res = 0;
+                }
+
+                JUMP(*stack--);
+              }
+
+              void main() {
+                PUSH(not);
+                zero();
+              }
+            \end{code}
+          \end{solution}
+        \part % f
+          \begin{solution}
+            \emph{Not sure}
+          \end{solution}
+      \end{parts}
+    \question
+      \begin{parts}
+        \part[4] STG (as described in the original paper) uses the Copying
+          Collection technique for garbage collection. Briefly explain how this
+          works in general.
+          \begin{solution}
+            With copy collection you have two heaps, when the garbage collector
+            runs it copies traverses the heap from the roots and copies across
+            everything that is accessible into the other heap.
+          \end{solution}
+
+        \part[2] Copying Collection requires two heaps. How would you implement
+          them space-efficiently?
+          \begin{solution}
+            I would use a two way heap (one that goes bottom up and one that
+            goes top down), that way when you copy the objects across you can
+            fill in the gaps left.
+          \end{solution}
+
+        \part[2] Copying memory from one heap to another is a slow process.
+          Explain one garbage collection technique which could reduce the
+          amount of memory that has to be copied.
+          \begin{solution}
+            You can have different heaps with different GC policies. An object
+            that has survived several GC runs could be moved to a heap with a
+            less aggressive GC policy.
+          \end{solution}
+      \end{parts}
+
+  \end{questions}
+\end{document}
